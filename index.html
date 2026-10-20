@@ -343,41 +343,88 @@ function tarjetaCancelar(b, r, texto){
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const btnMic = document.getElementById('mic');
 const vivo = document.getElementById('vivo');
-let rec = null, escuchando = false, acumulado = '';
+let rec = null;
+let escuchando = false;     // true mientras la usuaria no toque "terminar"
+let base = '';              // texto ya confirmado de sesiones anteriores (antes de una pausa)
+let sesion = '';            // texto de la sesión de reconocimiento actual
+let limite = null;          // temporizador de seguridad (60 s)
 
-btnMic.onclick = function(){
-  if(!SR){ burbuja('Este navegador no permite dictado. Use Chrome o escriba el evento.', 'app', 'error'); return; }
-  if(escuchando){ rec.stop(); return; }
-  acumulado = '';
+function norm(s){ return s.toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+// Une los resultados sin duplicar: Android repite la frase completa en cada actualización.
+// Si un resultado nuevo empieza con el anterior, lo reemplaza; si es distinto, lo agrega.
+function unirResultados(results){
+  const segs = [];
+  for(let i = 0; i < results.length; i++){
+    const t = results[i][0].transcript.trim();
+    if(!t) continue;
+    const ult = segs[segs.length - 1];
+    if(ult && norm(t).indexOf(norm(ult)) === 0) segs[segs.length - 1] = t;
+    else if(ult && norm(ult).indexOf(norm(t)) === 0) continue;
+    else segs.push(t);
+  }
+  return segs.join(' ');
+}
+
+function textoActual(){ return (base + ' ' + sesion).trim(); }
+
+function iniciarSesion(){
   rec = new SR();
   rec.lang = 'es-CL';
   rec.continuous = true;
   rec.interimResults = true;
+  sesion = '';
   rec.onresult = function(e){
-    let interino = '';
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      if(e.results[i].isFinal) acumulado += e.results[i][0].transcript + ' ';
-      else interino += e.results[i][0].transcript;
-    }
-    vivo.textContent = (acumulado + interino).trim();
+    sesion = unirResultados(e.results);
+    vivo.textContent = textoActual() || 'Escuchando…';
   };
   rec.onerror = function(e){
-    if(e.error === 'not-allowed') burbuja('El micrófono está bloqueado. Actívelo en el candado junto a la dirección → Permisos → Micrófono.', 'app', 'error');
-    else if(e.error !== 'no-speech' && e.error !== 'aborted') burbuja('Error del micrófono: ' + esc(e.error), 'app', 'error');
+    if(e.error === 'not-allowed'){
+      escuchando = false;
+      burbuja('El micrófono está bloqueado. Actívelo en el candado junto a la dirección → Permisos → Micrófono.', 'app', 'error');
+    } else if(e.error !== 'no-speech' && e.error !== 'aborted'){
+      burbuja('Error del micrófono: ' + esc(e.error), 'app', 'error');
+    }
   };
   rec.onend = function(){
-    escuchando = false;
-    btnMic.classList.remove('grabando');
-    btnMic.textContent = '🎤';
-    const t = (acumulado || vivo.textContent).trim();
-    vivo.textContent = '';
-    if(t) procesar(t);
+    // Android corta la escucha tras un silencio: si ella no ha terminado, se reinicia y se conserva lo dicho
+    base = textoActual();
+    sesion = '';
+    if(escuchando){
+      try{ iniciarSesion(); return; }catch(err){ /* si no se puede reiniciar, se termina normalmente */ }
+    }
+    terminar();
   };
   rec.start();
+}
+
+function terminar(){
+  escuchando = false;
+  clearTimeout(limite);
+  btnMic.classList.remove('grabando');
+  btnMic.textContent = '🎤';
+  const t = base.trim();
+  base = ''; sesion = '';
+  vivo.textContent = '';
+  if(t) procesar(t);
+}
+
+btnMic.onclick = function(){
+  if(!SR){ burbuja('Este navegador no permite dictado. Use Chrome o escriba el evento.', 'app', 'error'); return; }
+  if(escuchando){
+    // Ella decide cuándo termina: se detiene y onend procesa el texto
+    escuchando = false;
+    rec.stop();
+    return;
+  }
+  base = ''; sesion = '';
   escuchando = true;
   btnMic.classList.add('grabando');
   btnMic.textContent = '■';
-  vivo.textContent = 'Escuchando… toque de nuevo para terminar';
+  vivo.textContent = 'Escuchando… puede hacer pausas. Toque de nuevo para terminar.';
+  // Límite de seguridad por si olvida tocar el botón
+  limite = setTimeout(function(){ if(escuchando){ escuchando = false; rec.stop(); } }, 60000);
+  iniciarSesion();
 };
 
 /* ═════════ ESCRIBIR (respaldo si falla el micrófono) ═════════ */
