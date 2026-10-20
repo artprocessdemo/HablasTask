@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;margin:0;padding:16px;background:#f5f7fa;color:#1a202c}
+  h1{font-size:18px;margin:0 0 4px}
+  p.sub{font-size:13px;color:#536278;margin:0 0 16px}
+  .card{background:#fff;border:1px solid #d8e0ea;border-radius:10px;padding:14px;margin-bottom:12px}
+  .card h2{font-size:14px;margin:0 0 8px}
+  button{width:100%;padding:14px;font-size:15px;border:none;border-radius:8px;background:#2f6fde;color:#fff;font-weight:bold}
+  button:disabled{background:#9db4e0}
+  .res{margin-top:10px;font-size:14px;min-height:20px;white-space:pre-wrap}
+  .ok{color:#1e7b34;font-weight:bold}
+  .err{color:#c0392b;font-weight:bold}
+  .info{font-size:12px;color:#536278;margin-top:6px}
+</style>
+</head>
+<body>
+  <h1>Hablatask — Prueba de micrófono</h1>
+  <p class="sub">Haz las dos pruebas en orden y envía una captura del resultado.</p>
+
+  <div class="card">
+    <h2>Prueba A — Permiso del micrófono</h2>
+    <button id="btnA" onclick="pruebaA()">Probar micrófono</button>
+    <div class="res" id="resA"></div>
+  </div>
+
+  <div class="card">
+    <h2>Prueba B — Dictado (voz a texto)</h2>
+    <button id="btnB" onclick="pruebaB()">Dictar una frase</button>
+    <div class="info">Ejemplo: "Visita técnica el martes 27 de octubre a las 10 con el gasfíter"</div>
+    <div class="res" id="resB"></div>
+  </div>
+
+  <div class="card">
+    <h2>Datos del navegador</h2>
+    <div class="res" id="resC"></div>
+  </div>
+
+<script>
+function mostrar(id, texto, clase){
+  const el = document.getElementById(id);
+  el.className = 'res ' + (clase || '');
+  el.textContent = texto;
+}
+
+// Prueba A: solicita acceso al micrófono
+async function pruebaA(){
+  mostrar('resA', 'Solicitando permiso…');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    mostrar('resA', '✗ Este navegador no permite acceder al micrófono desde esta página.', 'err');
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    stream.getTracks().forEach(t => t.stop());
+    mostrar('resA', '✓ Micrófono disponible.', 'ok');
+  }catch(e){
+    mostrar('resA', '✗ Error: ' + e.name + ' — ' + e.message, 'err');
+  }
+}
+
+// Prueba B: reconocimiento de voz en español de Chile
+function pruebaB(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    mostrar('resB', '✗ Este navegador no tiene reconocimiento de voz.', 'err');
+    return;
+  }
+  const rec = new SR();
+  rec.lang = 'es-CL';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  const btn = document.getElementById('btnB');
+  btn.disabled = true;
+  btn.textContent = 'Escuchando… habla ahora';
+  mostrar('resB', '');
+
+  rec.onresult = (ev) => {
+    const texto = ev.results[0][0].transcript;
+    const conf = Math.round(ev.results[0][0].confidence * 100);
+    mostrar('resB', '✓ Texto reconocido:\n"' + texto + '"\nConfianza: ' + conf + '%', 'ok');
+  };
+  rec.onerror = (ev) => {
+    mostrar('resB', '✗ Error: ' + ev.error, 'err');
+  };
+  rec.onend = () => {
+    btn.disabled = false;
+    btn.textContent = 'Dictar una frase';
+  };
+
+  try{ rec.start(); }
+  catch(e){
+    mostrar('resB', '✗ No se pudo iniciar: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Dictar una frase';
+  }
+}
+
+// Información del navegador, útil para diagnosticar
+mostrar('resC',
+  'Navegador: ' + navigator.userAgent + '\n' +
+  'Contexto seguro (HTTPS): ' + (window.isSecureContext ? 'Sí' : 'No') + '\n' +
+  'Dentro de iframe: ' + (window.self !== window.top ? 'Sí' : 'No')
+);
+</script>
+</body>
+</html>
