@@ -255,8 +255,8 @@ function tarjetaAgendar(b, r){
     if(!editando){
       h += '<div class="campo tit"><span class="ic">' + (ICONOS[ev.tipo] || '❓') + '</span><span' + marca('tipo') + '>' + esc(ev.tipo || 'Sin clasificar') + '</span></div>';
       h += '<div class="campo"><span class="ic">📅</span><span' + marca('fecha') + '>' + (ev.fecha ? fechaLarga(ev.fecha) : 'Sin fecha') + (ev.hora ? ' · ' + esc(ev.hora) + ' a ' + horaFin(ev.hora, ev.duracion) : ' · Sin hora') + '</span></div>';
-      h += '<div class="campo"><span class="ic">📍</span><span' + marca('propiedad') + '>' + (ev.propiedad ? esc(ev.propiedad) + '<br><small style="color:var(--suave)">' + esc(ev.direccion) + '</small>' : 'Sin propiedad') + '</span></div>';
-      h += '<div class="campo"><span class="ic">👤</span><span' + marca('persona') + '>' + (ev.persona ? esc(ev.persona) + (ev.rol ? ' · ' + esc(ev.rol) : '') : 'Sin persona') + '</span></div>';
+      h += '<div class="campo"><span class="ic">📍</span><span' + marca('propiedad') + '>' + (ev.propiedad ? esc(ev.propiedad) + (ev.id_propiedad ? '<br><small style="color:var(--suave)">' + esc(ev.direccion) + '</small>' : ' <small style="color:var(--ambar)">(no registrada)</small>') : 'Sin propiedad') + '</span></div>';
+      h += '<div class="campo"><span class="ic">👤</span><span' + marca('persona') + '>' + (ev.persona ? esc(ev.persona) + (ev.id_persona ? (ev.rol ? ' · ' + esc(ev.rol) : '') : ' <small style="color:var(--ambar)">(no registrada)</small>') : 'Sin persona') + '</span></div>';
       if(ev.notas) h += '<div class="campo"><span class="ic">📝</span><span' + marca('notas') + '>' + esc(ev.notas) + '</span></div>';
       alertas.forEach(function(a){ h += '<div class="alerta">⚠️ ' + esc(a) + '</div>'; });
       if(msgFalta) h += '<div class="falta">' + esc(msgFalta) + '</div>';
@@ -269,8 +269,8 @@ function tarjetaAgendar(b, r){
       h += '<label>Tipo</label><select data-c="tipo"><option value="">Elegir…</option>' + CAT.tipos.map(function(t){ return '<option' + (t.tipo === ev.tipo ? ' selected' : '') + '>' + esc(t.tipo) + '</option>'; }).join('') + '</select>';
       h += '<label>Fecha</label><input type="date" data-c="fecha" value="' + (ev.fecha || '') + '">';
       h += '<label>Hora</label><input type="time" data-c="hora" value="' + (ev.hora || '') + '">';
-      h += '<label>Propiedad</label><select data-c="propiedad"><option value="">Sin propiedad</option>' + CAT.propiedades.map(function(p){ return '<option value="' + p.id + '"' + (p.id === ev.id_propiedad ? ' selected' : '') + '>' + esc(p.alias) + '</option>'; }).join('') + '</select>';
-      h += '<label>Persona</label><select data-c="persona"><option value="">Sin persona</option>' + CAT.personas.map(function(p){ return '<option value="' + p.id + '"' + (p.id === ev.id_persona ? ' selected' : '') + '>' + esc(p.nombre) + ' · ' + esc(p.rol) + '</option>'; }).join('') + '</select>';
+      h += '<label>Propiedad</label><select data-c="propiedad"><option value="">Sin propiedad</option>' + (!ev.id_propiedad && ev.propiedad ? '<option value="__libre" selected>' + esc(ev.propiedad) + ' (no registrada)</option>' : '') + CAT.propiedades.map(function(p){ return '<option value="' + p.id + '"' + (p.id === ev.id_propiedad ? ' selected' : '') + '>' + esc(p.alias) + '</option>'; }).join('') + '</select>';
+      h += '<label>Persona</label><select data-c="persona"><option value="">Sin persona</option>' + (!ev.id_persona && ev.persona ? '<option value="__libre" selected>' + esc(ev.persona) + ' (no registrada)</option>' : '') + CAT.personas.map(function(p){ return '<option value="' + p.id + '"' + (p.id === ev.id_persona ? ' selected' : '') + '>' + esc(p.nombre) + ' · ' + esc(p.rol) + '</option>'; }).join('') + '</select>';
       h += '</div><div class="botones"><button class="p" data-a="listo">Listo</button></div>';
     }
     b.innerHTML = h;
@@ -286,10 +286,15 @@ function tarjetaAgendar(b, r){
     ev.duracion = t ? t.duracion : ev.duracion;
     ev.fecha = v('fecha') || null;
     ev.hora = v('hora') || null;
-    const p = CAT.propiedades.find(function(x){ return x.id === v('propiedad'); });
-    ev.id_propiedad = p ? p.id : null; ev.propiedad = p ? p.alias : null; ev.direccion = p ? p.direccion : null;
-    const q = CAT.personas.find(function(x){ return x.id === v('persona'); });
-    ev.id_persona = q ? q.id : null; ev.persona = q ? q.nombre : null; ev.rol = q ? q.rol : null;
+    // "__libre" conserva la propiedad o persona no registrada que se dictó
+    if(v('propiedad') !== '__libre'){
+      const p = CAT.propiedades.find(function(x){ return x.id === v('propiedad'); });
+      ev.id_propiedad = p ? p.id : null; ev.propiedad = p ? p.alias : null; ev.direccion = p ? p.direccion : null;
+    }
+    if(v('persona') !== '__libre'){
+      const q = CAT.personas.find(function(x){ return x.id === v('persona'); });
+      ev.id_persona = q ? q.id : null; ev.persona = q ? q.nombre : null; ev.rol = q ? q.rol : null;
+    }
     // Tras editar, las alertas originales pueden ya no aplicar; se quitan las que el usuario resolvió
     alertas = alertas.filter(function(a){ return /Choca/.test(a); });
   }
@@ -307,8 +312,8 @@ function tarjetaAgendar(b, r){
       cambios = {};
       if(nuevo.tipo !== ev.tipo) cambios.tipo = 1;
       if(nuevo.fecha !== ev.fecha || nuevo.hora !== ev.hora) cambios.fecha = 1;
-      if(nuevo.id_propiedad !== ev.id_propiedad) cambios.propiedad = 1;
-      if(nuevo.id_persona !== ev.id_persona) cambios.persona = 1;
+      if((nuevo.propiedad || '') !== (ev.propiedad || '')) cambios.propiedad = 1;
+      if((nuevo.persona || '') !== (ev.persona || '')) cambios.persona = 1;
       if((nuevo.notas || '') !== (ev.notas || '')) cambios.notas = 1;
       Object.assign(ev, nuevo);
       alertas = res.alertas || [];
