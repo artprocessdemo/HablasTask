@@ -412,9 +412,13 @@ function terminar(){
 btnMic.onclick = function(){
   if(!SR){ burbuja('Este navegador no permite dictado. Use Chrome o escriba el evento.', 'app', 'error'); return; }
   if(escuchando){
-    // Ella decide cuándo termina: se detiene y onend procesa el texto
+    // Ella decide cuándo termina: se envía de inmediato lo que ya está en pantalla,
+    // sin esperar el cierre de Android (que tarda 1 a 2 segundos)
     escuchando = false;
-    rec.stop();
+    base = textoActual();
+    sesion = '';
+    if(rec){ rec.onend = null; rec.onresult = null; try{ rec.abort(); }catch(err){} }
+    terminar();
     return;
   }
   base = ''; sesion = '';
@@ -423,7 +427,7 @@ btnMic.onclick = function(){
   btnMic.textContent = '■';
   vivo.textContent = 'Escuchando… puede hacer pausas. Toque de nuevo para terminar.';
   // Límite de seguridad por si olvida tocar el botón
-  limite = setTimeout(function(){ if(escuchando){ escuchando = false; rec.stop(); } }, 60000);
+  limite = setTimeout(function(){ if(escuchando) btnMic.onclick(); }, 60000);
   iniciarSesion();
 };
 
