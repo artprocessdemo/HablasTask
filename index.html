@@ -38,6 +38,11 @@ header button{background:none;border:1px solid rgba(255,255,255,.4);color:#fff;b
 .botones button.p{background:var(--azul2);border-color:var(--azul2);color:#fff;font-weight:600}
 .botones button.d{color:var(--rojo);border-color:#f3c1bb}
 .botones button:disabled{opacity:.5}
+.botones.dos{flex-wrap:wrap}
+.botones.dos button{flex:1 1 45%}
+.botones button.voz{color:var(--azul2);border-color:var(--azul2)}
+.cambio{background:var(--ambar-claro);border-radius:6px;padding-left:4px;padding-right:4px}
+.esperando{background:var(--azul-claro);color:var(--azul);border-radius:8px;padding:6px 9px;font-size:13px;margin-top:8px}
 .form label{display:block;font-size:12px;color:var(--suave);margin:8px 0 3px}
 .form select,.form input{width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;font-size:15px;background:#fff}
 .chk{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #eef1f5;font-size:14px}
@@ -189,6 +194,24 @@ document.getElementById('salir').onclick = function(){
   document.getElementById('bloqueo').style.display = 'flex';
 };
 
+/* ═════════ DESTINO DEL DICTADO ═════════ */
+// Si hay una "Edición por voz" pendiente, el siguiente dictado (o texto escrito) va a esa tarjeta.
+// Si no, se trata como un evento nuevo o una cancelación.
+let edicionPendiente = null;
+
+function enviarTexto(t){
+  t = (t || '').trim();
+  if(!t) return;
+  if(edicionPendiente){
+    const f = edicionPendiente;
+    edicionPendiente = null;
+    campoTexto.placeholder = 'Escriba o toque el micrófono';
+    f(t);
+  } else {
+    procesar(t);
+  }
+}
+
 /* ═════════ PROCESAR DICTADO ═════════ */
 async function procesar(texto){
   texto = texto.trim();
@@ -214,6 +237,10 @@ function tarjetaAgendar(b, r){
   let alertas = r.alertas || [];
   let editando = false;
   let ocupado = false;
+  let cambios = {};          // campos modificados por la última edición por voz (se resaltan)
+  let esperandoVoz = false;  // true mientras la tarjeta espera el dictado de la corrección
+
+  const marca = function(c){ return cambios[c] ? ' class="cambio"' : ''; };
 
   function faltantes(){
     const f = [];
@@ -226,15 +253,17 @@ function tarjetaAgendar(b, r){
   function dibujar(msgFalta){
     let h = '';
     if(!editando){
-      h += '<div class="campo tit"><span class="ic">' + (ICONOS[ev.tipo] || '❓') + '</span><span>' + esc(ev.tipo || 'Sin clasificar') + '</span></div>';
-      h += '<div class="campo"><span class="ic">📅</span><span>' + (ev.fecha ? fechaLarga(ev.fecha) : 'Sin fecha') + (ev.hora ? ' · ' + esc(ev.hora) + ' a ' + horaFin(ev.hora, ev.duracion) : ' · Sin hora') + '</span></div>';
-      h += '<div class="campo"><span class="ic">📍</span><span>' + (ev.propiedad ? esc(ev.propiedad) + '<br><small style="color:var(--suave)">' + esc(ev.direccion) + '</small>' : 'Sin propiedad') + '</span></div>';
-      h += '<div class="campo"><span class="ic">👤</span><span>' + (ev.persona ? esc(ev.persona) + (ev.rol ? ' · ' + esc(ev.rol) : '') : 'Sin persona') + '</span></div>';
-      if(ev.notas) h += '<div class="campo"><span class="ic">📝</span><span>' + esc(ev.notas) + '</span></div>';
+      h += '<div class="campo tit"><span class="ic">' + (ICONOS[ev.tipo] || '❓') + '</span><span' + marca('tipo') + '>' + esc(ev.tipo || 'Sin clasificar') + '</span></div>';
+      h += '<div class="campo"><span class="ic">📅</span><span' + marca('fecha') + '>' + (ev.fecha ? fechaLarga(ev.fecha) : 'Sin fecha') + (ev.hora ? ' · ' + esc(ev.hora) + ' a ' + horaFin(ev.hora, ev.duracion) : ' · Sin hora') + '</span></div>';
+      h += '<div class="campo"><span class="ic">📍</span><span' + marca('propiedad') + '>' + (ev.propiedad ? esc(ev.propiedad) + '<br><small style="color:var(--suave)">' + esc(ev.direccion) + '</small>' : 'Sin propiedad') + '</span></div>';
+      h += '<div class="campo"><span class="ic">👤</span><span' + marca('persona') + '>' + (ev.persona ? esc(ev.persona) + (ev.rol ? ' · ' + esc(ev.rol) : '') : 'Sin persona') + '</span></div>';
+      if(ev.notas) h += '<div class="campo"><span class="ic">📝</span><span' + marca('notas') + '>' + esc(ev.notas) + '</span></div>';
       alertas.forEach(function(a){ h += '<div class="alerta">⚠️ ' + esc(a) + '</div>'; });
       if(msgFalta) h += '<div class="falta">' + esc(msgFalta) + '</div>';
+      if(Object.keys(cambios).length) h += '<div style="font-size:12px;color:var(--ambar);margin-top:6px">Resaltado: lo que cambió con la edición por voz.</div>';
+      if(esperandoVoz) h += '<div class="esperando">🎤 Toque el micrófono y diga la corrección. Ej.: "agrega la casa Montemar y a Daniela Pizarro".</div>';
       h += '<div class="dictado">"' + esc(ev.texto) + '"</div>';
-      h += '<div class="botones"><button class="p" data-a="agendar">Agendar</button><button data-a="editar">Editar</button><button class="d" data-a="descartar">Descartar</button></div>';
+      h += '<div class="botones dos"><button class="p" data-a="agendar">Agendar</button><button class="voz" data-a="voz">' + (esperandoVoz ? 'Cancelar edición' : 'Edición por voz') + '</button><button data-a="editar">Editar</button><button class="d" data-a="descartar">Descartar</button></div>';
     } else {
       h += '<div class="form">';
       h += '<label>Tipo</label><select data-c="tipo"><option value="">Elegir…</option>' + CAT.tipos.map(function(t){ return '<option' + (t.tipo === ev.tipo ? ' selected' : '') + '>' + esc(t.tipo) + '</option>'; }).join('') + '</select>';
@@ -265,10 +294,56 @@ function tarjetaAgendar(b, r){
     alertas = alertas.filter(function(a){ return /Choca/.test(a); });
   }
 
+  // Recibe la corrección dictada, la envía al servidor y actualiza la tarjeta resaltando los cambios
+  async function edicionPorVoz(texto){
+    esperandoVoz = false;
+    burbuja('✏️ ' + esc(texto), 'yo');
+    ocupado = true;
+    b.querySelectorAll('button').forEach(function(x){ x.disabled = true; });
+    const aviso = burbuja('Aplicando la edición…', 'app', 'cargando');
+    try{
+      const res = await api('corregir', { evento: ev, texto: texto });
+      const nuevo = res.evento;
+      cambios = {};
+      if(nuevo.tipo !== ev.tipo) cambios.tipo = 1;
+      if(nuevo.fecha !== ev.fecha || nuevo.hora !== ev.hora) cambios.fecha = 1;
+      if(nuevo.id_propiedad !== ev.id_propiedad) cambios.propiedad = 1;
+      if(nuevo.id_persona !== ev.id_persona) cambios.persona = 1;
+      if((nuevo.notas || '') !== (ev.notas || '')) cambios.notas = 1;
+      Object.assign(ev, nuevo);
+      alertas = res.alertas || [];
+      aviso.remove();
+      ocupado = false;
+      // La tarjeta se mueve al final de la conversación para que quede a la vista
+      hilo.appendChild(b);
+      dibujar(Object.keys(cambios).length ? '' : 'No se detectaron cambios. Intente de nuevo o use Editar.');
+    }catch(e){
+      aviso.className = 'msg app error';
+      aviso.textContent = 'No se pudo aplicar la edición. ' + e.message;
+      ocupado = false;
+      dibujar();
+    }
+  }
+
   async function accion(a){
     if(ocupado) return;
+    if(a === 'voz'){
+      if(esperandoVoz){
+        esperandoVoz = false;
+        edicionPendiente = null;
+        campoTexto.placeholder = 'Escriba o toque el micrófono';
+      } else {
+        esperandoVoz = true;
+        edicionPendiente = edicionPorVoz;
+        campoTexto.placeholder = 'Diga o escriba la corrección';
+      }
+      dibujar();
+      return;
+    }
+    // Cualquier otra acción cancela una edición por voz que haya quedado pendiente
+    if(esperandoVoz){ esperandoVoz = false; edicionPendiente = null; campoTexto.placeholder = 'Escriba o toque el micrófono'; }
     if(a === 'editar'){ editando = true; dibujar(); return; }
-    if(a === 'listo'){ leerFormulario(); editando = false; dibujar(); return; }
+    if(a === 'listo'){ leerFormulario(); cambios = {}; editando = false; dibujar(); return; }
     if(a === 'descartar'){
       b.innerHTML = '<span style="color:var(--suave)">Descartado. Puede volver a dictar.</span>';
       return;
@@ -406,7 +481,7 @@ function terminar(){
   const t = base.trim();
   base = ''; sesion = '';
   vivo.textContent = '';
-  if(t) procesar(t);
+  if(t) enviarTexto(t);
 }
 
 btnMic.onclick = function(){
@@ -433,7 +508,7 @@ btnMic.onclick = function(){
 
 /* ═════════ ESCRIBIR (respaldo si falla el micrófono) ═════════ */
 const campoTexto = document.getElementById('texto');
-document.getElementById('enviar').onclick = function(){ const t = campoTexto.value; campoTexto.value = ''; procesar(t); };
+document.getElementById('enviar').onclick = function(){ const t = campoTexto.value; campoTexto.value = ''; enviarTexto(t); };
 campoTexto.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('enviar').click(); });
 
 /* ═════════ ARRANQUE ═════════ */
