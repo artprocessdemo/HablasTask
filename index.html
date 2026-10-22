@@ -223,8 +223,16 @@ async function procesar(texto){
   try{
     const r = await api('interpretar', { texto: texto, modo: modo });
     b.classList.remove('cargando');
-    if(r.modo === 'cancelar') tarjetaCancelar(b, r, texto);
-    else tarjetaAgendar(b, r);
+    if(r.modo === 'cancelar'){ tarjetaCancelar(b, r, texto); return; }
+    // Uno o varios eventos: cada uno tiene su propia tarjeta independiente
+    const propuestas = r.propuestas || [{ evento: r.evento, alertas: r.alertas }];
+    if(propuestas.length > 1){
+      b.innerHTML = 'Detecté <b>' + propuestas.length + ' eventos</b>. Revise y agende cada uno:' +
+        (r.avisos || []).map(function(a){ return '<div class="alerta">⚠️ ' + esc(a) + '</div>'; }).join('');
+      propuestas.forEach(function(pr){ tarjetaAgendar(burbuja('', 'app'), pr); });
+    } else {
+      tarjetaAgendar(b, propuestas[0]);
+    }
   }catch(e){
     b.className = 'msg app error';
     b.textContent = 'No pude procesar el dictado. ' + e.message;
