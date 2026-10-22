@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="theme-color" content="#1f4e8c">
 <title>Hablatask</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 :root{
   --azul:#1f4e8c;--azul2:#2f6fde;--azul-claro:#e8f0fc;
@@ -523,6 +528,12 @@ btnMic.onclick = function(){
 const campoTexto = document.getElementById('texto');
 document.getElementById('enviar').onclick = function(){ const t = campoTexto.value; campoTexto.value = ''; enviarTexto(t); };
 campoTexto.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('enviar').click(); });
+
+/* ═════════ APP INSTALABLE ═════════ */
+// Registra el service worker (requisito de Chrome para "Instalar app")
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+}
 
 /* ═════════ ARRANQUE ═════════ */
 (async function(){
