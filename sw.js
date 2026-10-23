@@ -19,8 +19,8 @@ firebase.initializeApp({
 // Al iniciar Messaging, el SDK muestra solo las notificaciones que llegan con la app cerrada
 firebase.messaging();
 
-const CACHE = 'hablatask-v2';
-const ARCHIVOS = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE = 'hablatask-v3';
+const ARCHIVOS = ['./', './index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png', './icons/badge-96.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ARCHIVOS); }));
