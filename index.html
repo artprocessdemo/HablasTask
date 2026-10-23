@@ -70,6 +70,8 @@ footer{background:var(--blanco);border-top:1px solid var(--borde);padding:8px 12
 #bloqueo button{width:100%;padding:12px;border:none;border-radius:8px;background:var(--azul2);color:#fff;font-size:16px;font-weight:600}
 #bloqueo .err{color:var(--rojo);font-size:13px;min-height:18px;margin-bottom:6px}
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 </head>
 <body>
 
@@ -85,7 +87,7 @@ footer{background:var(--blanco);border-top:1px solid var(--borde);padding:8px 12
 
 <header>
   <div><h1>Hablatask</h1><small>by Art&amp;Process</small></div>
-  <button id="salir">Salir</button>
+  <div><button id="btnAvisos">🔔</button> <button id="btnResumen">✉ Resumen</button> <button id="salir">Salir</button></div>
 </header>
 
 <div id="hilo"></div>
@@ -107,6 +109,7 @@ const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto'
 const ICONOS = {'Exhibición':'🏠','Entrega':'🔑','Visita técnica':'🔧','Inicio de reparación':'🛠️','Reunión':'👥','Firma de contrato':'✍️'};
 
 let CLAVE = null;
+let CORREO_RESUMEN = '';
 let CAT = { tipos: [], propiedades: [], personas: [] };
 
 /* ═════════ UTILIDADES ═════════ */
@@ -159,6 +162,7 @@ function bajar(){ hilo.scrollTop = hilo.scrollHeight; }
 async function iniciar(){
   const r = await api('resumen');
   CAT = r.catalogos || CAT;
+  CORREO_RESUMEN = r.correo_resumen || '';
   const h = new Date().getHours();
   const saludo = h < 12 ? 'Buenos días' : (h < 20 ? 'Buenas tardes' : 'Buenas noches');
   let html = '<div>' + saludo + '. Hoy es <b>' + fechaLarga(r.fecha) + '</b>.</div>';
@@ -173,6 +177,7 @@ async function iniciar(){
   }
   html += '<div style="margin-top:6px;color:var(--suave);font-size:13px">Toque el micrófono para agendar o cancelar.</div>';
   burbuja(html, 'app');
+  renovarRegistro();
 }
 
 document.getElementById('entrar').onclick = async function(){
@@ -197,6 +202,33 @@ document.getElementById('salir').onclick = function(){
   lsDel('hablatask_clave'); CLAVE = null; hilo.innerHTML = '';
   document.getElementById('clave').value = '';
   document.getElementById('bloqueo').style.display = 'flex';
+};
+
+/* ═════════ RESUMEN MANUAL POR CORREO ═════════ */
+document.getElementById('btnResumen').onclick = function(){
+  const b = burbuja('', 'app');
+  const guardado = lsGet('hablatask_correo_resumen') || CORREO_RESUMEN;
+  function formulario(msg){
+    b.innerHTML = '<div class="tit" style="font-size:15px">✉ Enviar resumen de hoy</div>' +
+      '<div class="form"><label>Correo de destino</label><input type="email" data-c="correo" value="' + esc(guardado) + '" placeholder="nombre@correo.cl"></div>' +
+      (msg ? '<div class="falta">' + esc(msg) + '</div>' : '') +
+      '<div class="botones"><button class="p" data-a="enviar">Enviar</button><button data-a="cerrar">Cancelar</button></div>';
+    b.querySelector('[data-a="cerrar"]').onclick = function(){ b.remove(); };
+    b.querySelector('[data-a="enviar"]').onclick = async function(){
+      const correo = b.querySelector('[data-c="correo"]').value.trim();
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)){ formulario('Ingrese un correo válido.'); return; }
+      b.querySelectorAll('button').forEach(function(x){ x.disabled = true; });
+      try{
+        const r = await api('enviarResumen', { correo: correo });
+        lsSet('hablatask_correo_resumen', correo);
+        b.innerHTML = '<span class="ok">✓ Resumen enviado</span> a ' + esc(r.enviado_a) + ' (' + r.cantidad + (r.cantidad === 1 ? ' evento' : ' eventos') + ' hoy).';
+      }catch(e){
+        formulario('No se pudo enviar: ' + e.message);
+      }
+    };
+    bajar();
+  }
+  formulario();
 };
 
 /* ═════════ DESTINO DEL DICTADO ═════════ */
@@ -529,10 +561,114 @@ const campoTexto = document.getElementById('texto');
 document.getElementById('enviar').onclick = function(){ const t = campoTexto.value; campoTexto.value = ''; enviarTexto(t); };
 campoTexto.addEventListener('keydown', function(e){ if(e.key === 'Enter') document.getElementById('enviar').click(); });
 
-/* ═════════ APP INSTALABLE ═════════ */
-// Registra el service worker (requisito de Chrome para "Instalar app")
-if('serviceWorker' in navigator){
-  window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+/* ═════════ APP INSTALABLE Y NOTIFICACIONES ═════════ */
+// Datos públicos de Firebase (no son secretos: están pensados para ir en la app)
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyD93mJi8-c6-coaFibNkdeis5HH2pWChU8',
+  authDomain: 'hablatask.firebaseapp.com',
+  projectId: 'hablatask',
+  storageBucket: 'hablatask.firebasestorage.app',
+  messagingSenderId: '201174154119',
+  appId: '1:201174154119:web:e84a8723b459253a69f122'
+};
+const VAPID_KEY = 'BMCOFJCkxBbS21CSmUkFKFGqCvySWEHSomWztyLPOOWlbLSUctfAK8ySZS3YKioHT5Ii-8cmK0Lc0S_BxHObZmw';
+
+let registroSW = null;
+let mensajeria = null;
+
+// Registra el service worker (instalación + recepción de notificaciones)
+const swListo = ('serviceWorker' in navigator)
+  ? navigator.serviceWorker.register('sw.js').then(function(r){ registroSW = r; return navigator.serviceWorker.ready; }).catch(function(){ return null; })
+  : Promise.resolve(null);
+
+function iniciarMensajeria(){
+  if(mensajeria) return mensajeria;
+  if(typeof firebase === 'undefined' || !('Notification' in window)) return null;
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    mensajeria = firebase.messaging();
+    // Con la app ABIERTA, Firebase no muestra la notificación solo: se muestra aquí
+    mensajeria.onMessage(function(p){
+      const n = p.notification || {};
+      if(registroSW) registroSW.showNotification(n.title || 'Hablatask', { body: n.body || '', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' });
+    });
+  }catch(e){ mensajeria = null; }
+  return mensajeria;
+}
+
+// Obtiene el identificador de este teléfono y lo registra en la Sheet
+async function registrarTelefono(){
+  await swListo;
+  const m = iniciarMensajeria();
+  if(!m || !registroSW) throw new Error('Este navegador no admite notificaciones.');
+  const token = await m.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: registroSW });
+  if(!token) throw new Error('No se obtuvo el identificador del teléfono.');
+  const etiqueta = /Android/i.test(navigator.userAgent) ? 'Android' : (/iPhone|iPad/i.test(navigator.userAgent) ? 'iOS' : 'Computador');
+  await api('registrarDispositivo', { token: token, etiqueta: etiqueta });
+  return token;
+}
+
+// Botón 🔔: activar avisos y enviar una notificación de prueba
+document.getElementById('btnAvisos').onclick = function(){
+  const b = burbuja('', 'app');
+  async function pantalla(msg){
+    const estado = ('Notification' in window) ? Notification.permission : 'no-soportado';
+    let h = '<div class="tit" style="font-size:15px">🔔 Avisos en el teléfono</div>';
+    if(estado === 'no-soportado'){
+      b.innerHTML = h + '<div class="falta">Este navegador no admite notificaciones. Instale la app desde Chrome.</div>'; return;
+    }
+    if(estado === 'denied'){
+      b.innerHTML = h + '<div class="falta">Las notificaciones están bloqueadas. Actívelas en Ajustes del teléfono → Apps → Hablatask (o Chrome) → Notificaciones.</div>'; return;
+    }
+    h += estado === 'granted'
+      ? '<div style="font-size:13px;color:var(--verde);margin-top:4px">✓ Avisos activados en este teléfono.</div>'
+      : '<div style="font-size:13px;color:var(--suave);margin-top:4px">Reciba un aviso antes de cada evento, aunque la app esté cerrada.</div>';
+    if(msg) h += '<div style="font-size:13px;margin-top:6px">' + msg + '</div>';
+    h += '<div class="botones dos">' +
+      (estado === 'granted' ? '' : '<button class="p" data-a="activar">Activar avisos</button>') +
+      '<button data-a="prueba">Probar ahora</button><button class="voz" data-a="prueba15">Probar en 15 s</button><button data-a="cerrar">Cerrar</button></div>';
+    b.innerHTML = h;
+    b.querySelectorAll('button[data-a]').forEach(function(x){ x.onclick = function(){ accion(x.dataset.a); }; });
+    bajar();
+  }
+  async function accion(a){
+    if(a === 'cerrar'){ b.remove(); return; }
+    b.querySelectorAll('button').forEach(function(x){ x.disabled = true; });
+    try{
+      if(a === 'activar'){
+        const p = await Notification.requestPermission();
+        if(p !== 'granted'){ pantalla(); return; }
+        await registrarTelefono();
+        pantalla('Listo. Este teléfono quedó registrado.');
+        return;
+      }
+      // Antes de probar, se asegura que el teléfono esté registrado
+      if(Notification.permission !== 'granted'){
+        const p = await Notification.requestPermission();
+        if(p !== 'granted'){ pantalla(); return; }
+      }
+      await registrarTelefono();
+      const retraso = a === 'prueba15' ? 15 : 0;
+      if(retraso){
+        // No se espera la respuesta: así puede cerrar la app y ver llegar el aviso
+        api('probarPush', { retraso: retraso }).catch(function(){});
+        pantalla('<b>Cierre la app ahora.</b> El aviso llegará en unos 15 segundos.');
+      } else {
+        const r = await api('probarPush', { retraso: 0 });
+        pantalla('Aviso enviado a ' + r.enviados + (r.enviados === 1 ? ' teléfono.' : ' teléfonos.'));
+      }
+    }catch(e){
+      pantalla('<span style="color:var(--rojo)">No se pudo: ' + esc(e.message) + '</span>');
+    }
+  }
+  pantalla();
+};
+
+// Si los avisos ya están activados, se renueva el registro en silencio cada vez que se abre la app
+function renovarRegistro(){
+  if(('Notification' in window) && Notification.permission === 'granted' && CLAVE){
+    registrarTelefono().catch(function(){});
+  }
 }
 
 /* ═════════ ARRANQUE ═════════ */
