@@ -590,7 +590,8 @@ function iniciarMensajeria(){
     // Con la app ABIERTA, Firebase no muestra la notificación solo: se muestra aquí
     mensajeria.onMessage(function(p){
       const n = p.notification || {};
-      if(registroSW) registroSW.showNotification(n.title || 'Hablatask', { body: n.body || '', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' });
+      if(registroSW) registroSW.showNotification(n.title || 'Hablatask', { body: n.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png',
+        vibrate: [300, 150, 300, 150, 300], requireInteraction: true, renotify: true, tag: 'hablatask-' + Date.now(), silent: false });
     });
   }catch(e){ mensajeria = null; }
   return mensajeria;
